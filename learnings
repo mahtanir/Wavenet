@@ -1,0 +1,26 @@
+1. generator 
+    iterable object but only once and saves memory generating values lazily as one goes 
+
+2. Pytorch format 
+    Object oriented / Class based 
+    init 
+        super().__init__()
+    forward()
+
+3. General structure is 
+    model 
+    data
+    train 
+    utils 
+
+4. Wavenet Architecture 
+    Dilated 1D convolutions 
+        increases reference window 
+        dimensions reduce each time 
+    Resblock: each resblock is one layer of the diagram 
+    ResblockStack: A stack of the resblocks based on the #layers and repeat --> #layers dictating the dilation 
+    Casual Convolution: Only considers the past 
+    Dense Layer:
+        Input: sum of skip connections across all the layers 
+        Relu and 1by1 standard conv1Ds 
+        Softmax output across 256 channels for quantised encodings that are later decoded 
