@@ -10,13 +10,14 @@ def load_music(music_name):
 
 def load_music_test():
     music_name = 'data_parametric-2'
-    fs, data = load_music(music_name)
-    print(fs, data, data.shape)
+    fs, data = load_music(music_name) #fs is the frame rate
+    print(fs, data, data.shape, type(data))
 
 def data_generation(data, frame_rate, seq_size, mu, ctx):
     max_val = max(abs(min(data)), max(data))
     data = data / max_val
-    while True: #forever? 
+    while True: #forever? It's a generator. Only goes through one step at a time and seems to maintain a next pointer to know where to go next. 
+        #probably also maintains a length of the list. 
         sequence_sample_start = np.random.randint(0, data.shape[0] - seq_size)
         subsequence = data[sequence_sample_start: sequence_sample_start + seq_size]
         condensed_subsequence = encode_mu_law(subsequence, mu)
