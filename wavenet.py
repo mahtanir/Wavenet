@@ -110,6 +110,7 @@ class Wavenet(nn.Module):
         return sum_val
     
     def forward(self, x):
+        x = one_hot(x)
         x = self.casualConv1D(x)
         final_res_output, skip_connections = self.resBlockStack(x) #final output is not necessary
         skip_output = sum([skip[...,-final_res_output.shape[-1]:] for skip in skip_connections]) #ALT
@@ -122,6 +123,7 @@ class Wavenet(nn.Module):
 #         #32 = 24 in image, 512 = 128 in image
 
 def one_hot(x, kernel_size):
+    x = torch.tensor(np.array(x))
     x = nn.functional.pad(x, (kernel_size - 1, kernel_size - 1)) #IF we don't need this need to add to input. 
     one_hot = F.one_hot(x, num_classes=256) 
     tf_shape = (1, -1, 256) #so rows actually are the points! I THINK! but then the way the conv channel works is weird... But image also shows like this 

@@ -36,19 +36,28 @@ class Train():
             for j in range(self.batch_size): #assuming that the batch size is full training set, stochastic gradient descent 
                 sample = next(data_generator)
                 #Forward Pass
-                x = data_generator[:-1] #one behind 
-                y = data_generation[-x.shape[0]:] #normal (effectively one forward)
-                y_hat = net(x)
+                x = sample[:-1] #one behind 
+                y = sample[-x.shape[0]:] #normal (effectively one forward)
+
+                y = one_hot_utils(y)
+
+                y_hat = net(x) #converted to one_hot already but in the right format for conv 
+                tf_shape = (1, -1, 256) #so rows actually are the points! I THINK! but then the way the conv channel works is weird... But image also shows like this 
+                y_hat = torch.reshape(y_hat, tf_shape)
+
+
                 loss_criterion = criterion(y_hat, y)
-                loss = loss + loss_criterion #.item()
+                loss = loss + loss_criterion.item()
                 print(loss.shape)
-                loss.backward() #predicts loss across each step for all categories. Only true cat matters though.I.e loss is (1, sample)
+                loss.backward() #predicts loss across each step for all categories. Only true cat matters though.I.e loss is (1, sample) -> Actually loss criterion avg across samples 
                 optimizer.step()
                 optimizer.zero_grad() #stochastic 
-            agg_loss = torch.sum(loss) / self.batch_size
-            print(f"loss for epoch {i} : {agg_loss} \n")
+                
+            with torch.no_grad():
+                 agg_loss = torch.sum(loss) / self.batch_size
+                 print(f"loss for epoch {i} : {agg_loss} \n")
             # ndarray.sum(loss).asscalar()
-            if (minLoss is None or agg_loss < minLoss): #stochastic volative, so look per batch which is best
+                 if (minLoss is None or agg_loss < minLoss): #stochastic volative, so look per batch which is best
                     minLoss = agg_loss
                     self.save_params(net)
         return net
