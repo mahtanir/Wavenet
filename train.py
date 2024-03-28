@@ -27,7 +27,7 @@ class Train():
         self.seq_length = config.seq_length 
     
     def save_params(self, model):
-        torch.save(model.state_dict(), 'models/best/wavenet.pth')
+        torch.save(model.state_dict(), 'models/best2/wavenet.pth')
         # model.save_params('models/best_perf/' + datetime.datetime.now())
 
     def train(self):
@@ -57,6 +57,7 @@ class Train():
                 y_hat = net(x) #converted to one_hot already but in the right format for conv 
                 # print('model_output: ', y_hat, '\n model shape:', y_hat.shape,
                     #    '\n test output: ', y, '\n test output shape', y.shape)
+                # print('shape check', y_hat.shape, y.shape)
                 tf_shape = (0, 2, 1) #so rows actually are the points! I THINK! but then the way the conv channel works is weird... But image also shows like this 
                 y_hat = torch.permute(y_hat, tf_shape)
 
@@ -88,12 +89,14 @@ class Train():
          reference_window = sum(dilations)
          x_generated = x.copy()
          for i in tqdm(range(n)):
-              y = model(x_generated)
+              y = model(x_generated[-reference_window - 1:])
             #   y = model(x_generated[-reference_window -1: ]) ALR
-              y_next = np.array(y.argmax(1))[-1] #n, c, samples
-              np.append(x_generated, y_next)
+              y_next = np.squeeze(y.argmax(1).numpy())[-1] #n, c, samples
+            #   print(y.argmax(1).numpy(), np.squeeze(y.argmax(1).numpy())[-1])
+              x_generated = np.append(x_generated, y_next)
               #similar to LSTM logic but now instead of reference window of 1, you have reference window of dilations 
               #still add the prev output! 
+            #   print(x_generated.shape)
          return x_generated
     
     def generator(self, model, n, dilation_depth, n_repeat): 

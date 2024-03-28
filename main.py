@@ -31,7 +31,7 @@ if (__name__ == '__main__'):
         config = Config()
         trainer = Train(config)
         model = trainer.bestModel()
-        trainer.generator(model, 2000, config.layer_size, config.stack_size)
+        trainer.generator(model, 20000, config.layer_size, config.stack_size)
 
 # print(__name__)
 
