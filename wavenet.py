@@ -7,16 +7,20 @@ import torch.nn.functional as F
 
 class CasualDilatedConv1D(nn.Module):
     def __init__(self, res_channels, out_channels, kernel_size, dilation):
-        self.dilation - dilation
+        super().__init__()
+        self.dilation = dilation
         self.kernel_size = kernel_size
-        self.conv1D = nn.Conv1(res_channels, out_channels, kernel_size, dilation=dilation, bias=False)
-        self.ignoreOutIndex = (kernel_size - 1) #i.e don't have to consider right part because of k - 1 padding on either side. 
+        self.conv1D = nn.Conv1d(res_channels, out_channels, kernel_size, dilation=dilation, bias=False)
+        self.ignoreOutIndex = (kernel_size - 1)*dilation #i.e don't have to consider right part because of k - 1 padding on either side. 
     
     def forward(self, x):
 # Apply padding
-        # x = nn.functional.pad(x, (self.kernel_size - 1, self.kernel_size - 1)) #IF we don't need this need to add to input. 
+        x = nn.functional.pad(x, ((self.kernel_size - 1)*self.dilation, (self.kernel_size - 1)*self.dilation)) #IF we don't need this need to add to input. 
         #if we do this without padding we lose (k - 1)*dim everytime. 
         #padding same is (k - 1) / 2 each side. So instead we do (k - 1) on both sides but now 2k-2 vs k - 1 so k - 1 extra. Remove right. 
+        # x = x.double()
+        # print('pre shape', x.shape)
+        # print(self.conv1D(x)[..., :-self.ignoreOutIndex].shape) 
         return self.conv1D(x)[..., :-self.ignoreOutIndex]  #https://chat.openai.com/c/0598fb53-ddb1-43e9-9572-8fc80498ca28 cause padding = same 
     #why do we do this? Only if we add padding right 
 
@@ -28,8 +32,8 @@ class ResBlock(nn.Module): #using the same kernel weights for all
     def __init__(self, res_channels, skip_channels, kernel_size, dilation):
         super().__init__()
         self.dilatedConv1D = CasualDilatedConv1D(res_channels, res_channels, kernel_size, dilation = dilation)
-        self.resConv1D = nn.Conv1D(res_channels, res_channels, kernel_size=1, dilation=1) #i.e same input output dims (see diagram)
-        self.skipConv1D = nn.Conv1D(res_channels, skip_channels, kernel_size=1, dilation=1)  
+        self.resConv1D = nn.Conv1d(res_channels, res_channels, kernel_size=1, dilation=1) #i.e same input output dims (see diagram)
+        self.skipConv1D = nn.Conv1d(res_channels, skip_channels, kernel_size=1, dilation=1)  
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
     
@@ -49,7 +53,7 @@ class ResBlock(nn.Module): #using the same kernel weights for all
 class stackOfResBlocks(nn.Module):
     def __init__(self, stack_size, layer_size, res_channels, skip_channels, kernel_size):
         super().__init__()
-        dilations = self.buildDilations(self, stack_size, layer_size)
+        dilations = self.buildDilations(stack_size, layer_size)
         self.resBlockArr = [] 
         for stack in dilations:
             for dilation in stack:
@@ -73,13 +77,13 @@ class stackOfResBlocks(nn.Module):
             residual_outputs.append(residual)
         return x, torch.stack(residual_outputs) #creates new dim at = 0 . so it is #layers, (n), samples, channels 
 
-class DenseLayer(nn.module): #WHAT IS GOING ON HERE! 
+class DenseLayer(nn.Module): #WHAT IS GOING ON HERE! 
     def __init__(self, res_channels, out_channels):
         super().__init__()
         self.relu = nn.ReLU()
-        self.conv1D = nn.conv1(res_channels, kernel_size=(1,1), dilation=1, bias=False)
-        self.conv2D = nn.conv1(res_channels, out_channels, kernel_size=(1,1), dilation=1, bias=False)
-        self.softmax = nn.softmax(dim=1) 
+        self.conv1D = nn.Conv1d(res_channels, res_channels, kernel_size=1, dilation=1, bias=False)
+        self.conv2nD = nn.Conv1d(res_channels, out_channels, kernel_size=1, dilation=1, bias=False)
+        self.softmax = nn.Softmax(dim=1) 
 
     def forward(self, skipConnections): #not sure about channel here
         #we have skip connections of (batches, timesteps, channles) potentially channels is the timseteps and timestep is the song notes? 
@@ -88,7 +92,7 @@ class DenseLayer(nn.module): #WHAT IS GOING ON HERE!
         out = self.relu(out)
         out = self.conv1D(out)
         out = self.relu(out)
-        out = self.conv2D(out)
+        out = self.conv2nD(out)
         return out 
         # return self.softmax(out) #outs dimensions after torch.sum become samples,channels in which case this would make sense. 
 
@@ -110,8 +114,9 @@ class Wavenet(nn.Module):
         return sum_val
     
     def forward(self, x):
-        x = one_hot(x)
+        x = one_hot(x, self.kernel_size)
         x = self.casualConv1D(x)
+        # print('conv1d 2/ dilation post shape: ', x.shape, '\n')
         final_res_output, skip_connections = self.resBlockStack(x) #final output is not necessary
         skip_output = sum([skip[...,-final_res_output.shape[-1]:] for skip in skip_connections]) #ALT
         return self.denseLayer(skip_connections)
@@ -124,9 +129,14 @@ class Wavenet(nn.Module):
 
 def one_hot(x, kernel_size):
     x = torch.tensor(np.array(x))
-    x = nn.functional.pad(x, (kernel_size - 1, kernel_size - 1)) #IF we don't need this need to add to input. 
+    # print('shape here!', x.shape)
+    # x = nn.functional.pad(x, (kernel_size - 1, kernel_size - 1)) #IF we don't need this need to add to input. 
+    # print('shape here!', x.shape)
     one_hot = F.one_hot(x, num_classes=256) 
+    # print(one_hot.shape, one_hot[0])
     tf_shape = (1, -1, 256) #so rows actually are the points! I THINK! but then the way the conv channel works is weird... But image also shows like this 
     py_shape = (1, 256, -1)
     one_hot = torch.reshape(one_hot, py_shape)
+    one_hot = torch.tensor(one_hot, dtype=torch.float32)
+    # print('one_hot vector input: \n', one_hot, '\n', one_hot.shape, '\n')
     return one_hot

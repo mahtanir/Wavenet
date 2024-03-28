@@ -3,6 +3,13 @@ import datetime
 from dataloader import * 
 import numpy as np
 from mxnet import ndarray
+from tqdm import tqdm
+from scipy.io.wavfile import write
+from IPython.display import Audio
+import sounddevice as sd
+
+
+
 
 class Train():
 
@@ -19,42 +26,50 @@ class Train():
 
         self.seq_length = config.seq_length 
     
-    def save_params(model):
-        model.save_params('models/best_perf/' + datetime.datetime.now())
+    def save_params(self, model):
+        torch.save(model.state_dict(), 'models/best/wavenet.pth')
+        # model.save_params('models/best_perf/' + datetime.datetime.now())
 
     def train(self):
-        net = Wavenet(self.res_channels, self.mu, self.skip_channels, 2, self.layer_size)
+        print('at train')
+        net = Wavenet(self.res_channels, self.mu, self.skip_channels, 2, self.stack_size, self.layer_size)
         self.net = net 
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(net.parameters(), lr=0.01)
         n_steps = self.batch_size
+        print('loading music...')
         fs, data = load_music('data_parametric-2')
         minLoss = None 
-        data_generator = data_generation(data, fs, self.seq_length, self.mu, None)
-        for i in range(self.epochs):
+        data_generator = data_generation(data, fs, self.seq_length, self.mu, None) #generate training data lazilly.
+        for i in tqdm(range(self.epochs)):
             loss = 0 
-            for j in range(self.batch_size): #assuming that the batch size is full training set, stochastic gradient descent 
+            for j in tqdm(range(self.batch_size), leave=False): #assuming that the batch size is full training set, stochastic gradient descent 
+                # print('epoch: ', i, '\n sample: ', j, '\n')
                 sample = next(data_generator)
                 #Forward Pass
                 x = sample[:-1] #one behind 
+                # x = x.astype('float64')
+                # print('type x', type(x[0]))
                 y = sample[-x.shape[0]:] #normal (effectively one forward)
 
                 y = one_hot_utils(y)
 
                 y_hat = net(x) #converted to one_hot already but in the right format for conv 
-                tf_shape = (1, -1, 256) #so rows actually are the points! I THINK! but then the way the conv channel works is weird... But image also shows like this 
-                y_hat = torch.reshape(y_hat, tf_shape)
+                # print('model_output: ', y_hat, '\n model shape:', y_hat.shape,
+                    #    '\n test output: ', y, '\n test output shape', y.shape)
+                tf_shape = (0, 2, 1) #so rows actually are the points! I THINK! but then the way the conv channel works is weird... But image also shows like this 
+                y_hat = torch.permute(y_hat, tf_shape)
 
 
                 loss_criterion = criterion(y_hat, y)
                 loss = loss + loss_criterion.item()
-                print(loss.shape)
-                loss.backward() #predicts loss across each step for all categories. Only true cat matters though.I.e loss is (1, sample) -> Actually loss criterion avg across samples 
+                # print('loss criterion: ', loss_criterion, '\nloss: ', loss)
+                loss_criterion.backward() #predicts loss across each step for all categories. Only true cat matters though.I.e loss is (1, sample) -> Actually loss criterion avg across samples 
                 optimizer.step()
                 optimizer.zero_grad() #stochastic 
-                
+
             with torch.no_grad():
-                 agg_loss = torch.sum(loss) / self.batch_size
+                 agg_loss = loss / self.batch_size
                  print(f"loss for epoch {i} : {agg_loss} \n")
             # ndarray.sum(loss).asscalar()
                  if (minLoss is None or agg_loss < minLoss): #stochastic volative, so look per batch which is best
@@ -62,27 +77,39 @@ class Train():
                     self.save_params(net)
         return net
     
+    def bestModel(self): #load best model for given architecture 
+        model =  Wavenet(self.res_channels, self.mu, self.skip_channels, 2, self.stack_size, self.layer_size)
+        model.load_state_dict(torch.load('models/best/wavenet.pth'))
+        self.net = model
+        return model 
+    
     def generate_slow(self, x, model, n, dilation_depth, n_repeat):
          dilations = [2*i for i in  range(dilation_depth)] * n_repeat
          reference_window = sum(dilations)
          x_generated = x.copy()
-         for i in range(n):
+         for i in tqdm(range(n)):
               y = model(x_generated)
             #   y = model(x_generated[-reference_window -1: ]) ALR
               y_next = np.array(y.argmax(1))[-1] #n, c, samples
-              x_generated.append(y_next) 
+              np.append(x_generated, y_next)
               #similar to LSTM logic but now instead of reference window of 1, you have reference window of dilations 
               #still add the prev output! 
          return x_generated
     
     def generator(self, model, n, dilation_depth, n_repeat): 
+         print('generating now...')
          fr, data = load_music('data_parametric-2')
          data_sample = data_generation_sample(data, fr, self.seq_length, self.mu, None)
          generated_song = self.generate_slow(data_sample, model, n, self.layer_size, self.stack_size)
          gen_wav = np.array(generated_song)
          decoded_wave = decode_mu_law(gen_wav, 256)
-         np.save("wav.npy",gen_wav)
+         np.save("wav_long.npy",decoded_wave)
+        #  write('test.wav', fr, decoded_wave)
+        #  sd.play(decoded_wave, fr)
 
+        #  Audio(gen_wav, rate=fr)
+
+    
 
     
 
